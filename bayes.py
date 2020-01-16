@@ -1,0 +1,147 @@
+import numpy as np
+import pandas as pd
+import math
+
+ap = argparse.ArgumentParser()
+ap.add_argument("-n", "--name", required=True,
+	help="name of the user")
+args = vars(ap.parse_args())
+
+class Bayes:
+
+    df = np.zeros((2, 2))
+    priors = []
+
+    # Program Flow : Training :: naiveBayesClassifier -> determinType -> computePmf -> computePdf
+    # Testing :: predict -> findCdP & findCtP
+    def __init__(self, dataset):
+        
+        self.data = dataset
+        self.data = self.data.fillna(0)
+        self.df = self.data.to_numpy()
+        self.r, self.c = self.df.shape
+        self.y = self.df[:, self.c-1]
+        self.y = list(self.y)
+        self.discrete = []
+        self.continuous = [] 
+        self.conditionalPdfs = []
+        self.conditionalPmfs = []
+        self.outputClasses = list(set(self.y))
+        for clas in self.outputClasses:
+            self.priors.append(self.y.count(clas)/len(self.y))
+
+    # For the given column of discrete data, compute the pmf for each class in the output..
+    def computePmf(self, column, i):
+
+        self.discrete.append(i)
+        column = list(column)
+        labels = list(set(column))
+        for label in labels:
+            cP = [i, label]
+            l = [i for i, x in enumerate(column) if x == label]   
+            for clas in self.outputClasses:
+                locs = [i for i, x in enumerate(self.y) if x == clas]
+                indices = list(set(l).intersection(set(locs)))
+                cP.append(len(indices)/self.y.count(clas))
+            self.conditionalPmfs.append(cP)
+
+    # For the given column of discrete data, compute the pmf for each class in the output..
+    def computePdf(self, column, i):
+
+        self.continuous.append(i)
+        Ncolumn = list(column)
+        for clas in self.outputClasses:
+            pts = [i for i in Ncolumn if self.y[Ncolumn.index(i)] == clas]
+            pts = np.asarray(pts)
+            u = np.mean(pts)
+            v = np.var(pts)
+            self.conditionalPdfs.append([i, u, v])
+            
+    # Determine type of data (discrete/continuous) assuming only numerical entries..
+    def determineType(self, column):
+
+        c = list(column)
+        d = list(set(c))
+        t = [i for i in d if (i*10)%10 != 0]
+        if t:
+            return 1
+        elif len(d) > 10:
+            return 1
+        else:
+            return 0
+        
+    # For each column, determine the probabilities..
+    def naiveBayesClassifier(self):
+
+        for i in range(0, self.c-1):
+        
+            col = self.df[:, i]
+            typeFlag = self.determineType(col)
+            if typeFlag == 0:
+                self.computePmf(col, i)
+            else:
+                self.computePdf(col, i)
+
+    ## TESTING FUNCTIONS:
+
+    # Extracting the probability parameters for continuous feature columns given a test vector..
+    def findCtP(self, i, x):
+    
+        p = []
+        index = [self.conditionalPdfs.index(j) for j in self.conditionalPdfs if j[0] == i]
+        for i in index:
+            [_, u, v] = self.conditionalPdfs[i]
+            if v == 0:
+                v = 1
+            p.append((1/math.sqrt(2*math.pi*v))*math.exp(-((x-u)**2)/(2*v)))
+        return p
+
+    # Extracting the probability parameters for continuous feature columns given a test vector..
+    def findCdP(self, i, l):
+    
+        a = [j for j in self.conditionalPmfs if (j[0] == i)]
+        probArray = [j for j in a if (j[1] == l)][0]
+        probArray = probArray[2:len(probArray)]
+        return probArray
+
+    # Given a test vector, find probabilities from each column..
+    def predict(self, test):
+
+        size = len(test)
+        PYX = []
+        for i in range(0, size):
+            if i in self.continuous:
+                p = self.findCtP(i, test[i])
+            else:
+                p = self.findCdP(i, test[i])
+            PYX.append(p)
+
+        PYX = np.asarray(PYX)
+        [r, c] = PYX.shape
+        finalProb = []
+        for i in range(0, c):
+            p = 1
+            for j in range(0, r):
+                prod = PYX[j][i]*p
+            finalProb.append(prod)
+        return [PYX, finalProb]
+      
+def main():
+
+    data = Bayes(pd.read_csv(args["path"]))
+    data.naiveBayesClassifier()
+    i = 0
+    e = 0
+    for test in data.df:
+        yp = test[-1]
+        test = list(test)
+        test.pop()
+        [pyx, p] = data.predict(test)
+        i += 1
+        if p.index(max(p)) != yp:
+            e += 1
+    print('Model Accuracy = ', (1- (e/i))*100)
+    
+if __name__ == '__main__':
+    main()
+
